@@ -4,8 +4,9 @@
   "description": "Algorithmic trading bot for Indian Stock Market (NSE/BSE) with SMA crossover strategy",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "tsx server.ts",
+    "dev": "tsx watch server.ts",
+    "build": "tsc"
   },
   "keywords": [
     "trading",
@@ -31,6 +32,13 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "prisma": "^6.4.1"
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.5.2",
+    "@types/node-cron": "^3.0.11",
+    "@types/speakeasy": "^2.0.10",
+    "prisma": "^6.4.1",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
   }
 }
