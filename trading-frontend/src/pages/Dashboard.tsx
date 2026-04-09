@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Wallet, DollarSign, TrendingUp, ClipboardList, RefreshCw } from 'lucide-react';
 import PortfolioCard from '../components/cards/PortfolioCard';
 import SignalCard from '../components/cards/SignalCard';
@@ -20,12 +20,29 @@ export default function Dashboard() {
   const { data: historyData, isLoading: histLoading } = useMarketHistory('RELIANCE.NS', '14');
   const scanMutation = useScanSignals();
 
+  // Handle the manual button click cleanly
+  const handleScan = () => {
+    if (!scanMutation.isPending) {
+      scanMutation.mutate(SCAN_SYMBOLS);
+    }
+  };
+
   const pf = portfolio?.data || {};
   const tradeList = trades?.data || [];
   const history = historyData?.data || [];
 
-  const handleScan = () => scanMutation.mutate(SCAN_SYMBOLS);
   const signals = scanMutation.data?.data || [];
+
+  useEffect(() => {
+    // Initial scan and setup polling every 10 seconds for real-time updates
+    handleScan();
+    const interval = setInterval(() => {
+      handleScan();
+    }, 10000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once on mount
+
 
   const totalTrades = tradeList.length;
   const currentValue = pf.currentValue || 0;
@@ -60,14 +77,22 @@ export default function Dashboard() {
         {/* Signal Scanner — 40% */}
         <div className="lg:col-span-2 bg-[#111827] border border-[#1F2937] rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-white">Watchlist Signals</h2>
+            <h2 className="text-base font-semibold text-white flex items-center gap-2">
+              Watchlist Signals
+              {scanMutation.isPending && signals.length > 0 && (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10B981] opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#059669]"></span>
+                </span>
+              )}
+            </h2>
             <button onClick={handleScan} disabled={scanMutation.isPending}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#3B82F6] hover:bg-[#2563EB] text-white rounded-lg text-xs font-medium transition-colors disabled:opacity-50">
               <RefreshCw size={12} className={scanMutation.isPending ? 'animate-spin' : ''} />
-              Scan All
+              {scanMutation.isPending ? 'Scanning...' : 'Scan All'}
             </button>
           </div>
-          {scanMutation.isPending ? (
+          {signals.length === 0 && scanMutation.isPending ? (
             <Loader rows={5} />
           ) : signals.length > 0 ? (
             <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
@@ -138,16 +163,30 @@ export default function Dashboard() {
               <table className="w-full text-xs">
                 <thead><tr className="text-[#6B7280] text-left border-b border-[#1F2937]">
                   <th className="pb-2">Symbol</th><th className="pb-2">Qty</th><th className="pb-2">Avg Price</th>
-                  <th className="pb-2">P&L</th>
+                  <th className="pb-2">P&L</th><th className="pb-2 text-right">Actions</th>
                 </tr></thead>
                 <tbody>
-                  {pf.holdings.map((h) => (
+                  {pf.holdings.map((h: any) => (
                     <tr key={h.symbol} className="border-b border-[#1F2937]/50">
                       <td className="py-2 font-medium text-white">{h.symbol?.replace('.NS', '')}</td>
                       <td className="font-mono text-[#9CA3AF]">{h.qty}</td>
                       <td className="font-mono text-[#9CA3AF]">{formatINR(h.avgBuyPrice)}</td>
                       <td className={`font-mono font-semibold ${(h.pnl || 0) >= 0 ? 'text-[#10B981]' : 'text-[#EF4444]'}`}>
                         {formatINR(h.pnl || 0)}
+                      </td>
+                      <td className="py-2 text-right space-x-2">
+                        <button
+                          onClick={() => setTradeModal({ open: true, symbol: h.symbol, signal: 'BUY', price: h.currentPrice || h.avgBuyPrice })}
+                          className="px-2 py-1 bg-[#064E3B] hover:bg-[#047857] text-[#10B981] rounded text-[10px] font-bold uppercase transition-colors"
+                        >
+                          Buy
+                        </button>
+                        <button
+                          onClick={() => setTradeModal({ open: true, symbol: h.symbol, signal: 'SELL', price: h.currentPrice || h.avgBuyPrice })}
+                          className="px-2 py-1 bg-[#7F1D1D] hover:bg-[#B91C1C] text-[#EF4444] rounded text-[10px] font-bold uppercase transition-colors"
+                        >
+                          Sell
+                        </button>
                       </td>
                     </tr>
                   ))}

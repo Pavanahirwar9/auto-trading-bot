@@ -107,10 +107,14 @@ export default function Portfolio() {
                       <td className={`py-3 font-mono font-semibold ${pnl >= 0 ? 'text-[#10B981]' : 'text-[#EF4444]'}`}>
                         {formatINR(pnl)}
                       </td>
-                      <td className="py-3">
+                      <td className="py-3 flex gap-2">
+                        <button onClick={() => setTradeModal({ open: true, symbol: h.symbol, signal: 'BUY', price: h.currentPrice || h.avgBuyPrice })}
+                          className="px-3 py-1 bg-[#10B981]/20 hover:bg-[#10B981]/30 text-[#10B981] rounded-lg text-xs font-medium transition-colors">
+                          Buy
+                        </button>
                         <button onClick={() => setTradeModal({ open: true, symbol: h.symbol, signal: 'SELL', price: h.currentPrice || h.avgBuyPrice })}
                           className="px-3 py-1 bg-[#EF4444]/20 hover:bg-[#EF4444]/30 text-[#EF4444] rounded-lg text-xs font-medium transition-colors">
-                          Sell All
+                          Sell
                         </button>
                       </td>
                     </tr>
