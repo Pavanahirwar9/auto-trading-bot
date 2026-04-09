@@ -17,4 +17,5 @@ COPY trading-backend ./
 
 EXPOSE 3000
 
-CMD ["npm", "run", "start"]
+# Ensure schema is present in Cloud SQL before booting the API.
+CMD ["sh", "-c", "npx prisma db push && npm run start"]

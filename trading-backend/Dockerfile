@@ -18,5 +18,5 @@ COPY . .
 # Expose the API port
 EXPOSE 3000
 
-# Command to run TSX (using the exact script from your package.json)
-CMD ["npm", "run", "start"]
+# Ensure schema is present in Cloud SQL before booting the API.
+CMD ["sh", "-c", "npx prisma db push && npm run start"]
