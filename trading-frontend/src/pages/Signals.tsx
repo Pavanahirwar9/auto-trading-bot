@@ -1,18 +1,27 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Radar, X, Plus, RefreshCw } from 'lucide-react';
+import toast from 'react-hot-toast';
 import SignalCard from '../components/cards/SignalCard';
 import TradeModal from '../components/modals/TradeModal';
 import Loader from '../components/common/Loader';
 import { useScanSignals } from '../hooks/useSignals';
+import { useExecuteTrade } from '../hooks/useTrades';
 import useWatchlistStore from '../store/watchlistStore';
 import { formatDate } from '../utils/formatters';
+
+const AUTO_TRADE_QTY = 1;
+const AUTO_TRADE_INTERVAL_MS = 30000;
 
 export default function Signals() {
   const [inputValue, setInputValue] = useState('');
   const [tradeModal, setTradeModal] = useState({ open: false, symbol: '', signal: '', price: 0 });
   const [lastScan, setLastScan] = useState(null);
+  const [autoTradeEnabled, setAutoTradeEnabled] = useState(false);
+  const [isCycleRunning, setIsCycleRunning] = useState(false);
+  const cycleLockRef = useRef(false);
   const { watchlist, addSymbol, removeSymbol } = useWatchlistStore();
   const scanMutation = useScanSignals();
+  const executeTradeMutation = useExecuteTrade();
 
   const handleScan = () => {
     scanMutation.mutate(watchlist);
@@ -32,6 +41,79 @@ export default function Signals() {
 
   const signals = scanMutation.data?.data || [];
 
+  const runAutoTradeCycle = async () => {
+    if (cycleLockRef.current) return;
+    cycleLockRef.current = true;
+    setIsCycleRunning(true);
+
+    try {
+      const scanResult = await scanMutation.mutateAsync(watchlist);
+      setLastScan(new Date().toISOString());
+
+      const scannedSignals = scanResult?.data || [];
+      const actionableSignals = scannedSignals
+        .filter((s) => s.success && s.data && (s.data.signal === 'BUY' || s.data.signal === 'SELL'))
+        .map((s) => s.data);
+
+      if (actionableSignals.length === 0) return;
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const s of actionableSignals) {
+        try {
+          await executeTradeMutation.mutateAsync({
+            symbol: s.symbol,
+            action: s.signal,
+            quantity: AUTO_TRADE_QTY,
+          });
+          successCount++;
+        } catch {
+          failCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`Auto trade executed ${successCount} signal${successCount > 1 ? 's' : ''}.`);
+      }
+      if (failCount > 0) {
+        toast.error(`${failCount} auto trade execution${failCount > 1 ? 's' : ''} failed.`);
+      }
+    } catch (err) {
+      toast.error(`Auto trade error: ${err.message || 'Unknown error'}`);
+    } finally {
+      cycleLockRef.current = false;
+      setIsCycleRunning(false);
+    }
+  };
+
+  const handleAutoTradeToggle = () => {
+    if (autoTradeEnabled) {
+      setAutoTradeEnabled(false);
+      toast('Auto trade stopped.');
+      return;
+    }
+
+    if (!watchlist.length) {
+      toast.error('Watchlist is empty. Add symbols first.');
+      return;
+    }
+
+    setAutoTradeEnabled(true);
+    toast.success('Auto trade started. Scanning every 30 seconds.');
+  };
+
+  useEffect(() => {
+    if (!autoTradeEnabled) return;
+
+    runAutoTradeCycle();
+    const timer = setInterval(() => {
+      runAutoTradeCycle();
+    }, AUTO_TRADE_INTERVAL_MS);
+
+    return () => clearInterval(timer);
+  }, [autoTradeEnabled, watchlist]);
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -45,11 +127,23 @@ export default function Signals() {
             {lastScan && <p className="text-xs text-[#6B7280]">Last scan: {formatDate(lastScan)}</p>}
           </div>
         </div>
-        <button onClick={handleScan} disabled={scanMutation.isPending}
-          className="flex items-center gap-2 px-5 py-2.5 bg-[#3B82F6] hover:bg-[#2563EB] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
-          <RefreshCw size={16} className={scanMutation.isPending ? 'animate-spin' : ''} />
-          Scan Watchlist
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleAutoTradeToggle}
+            className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              autoTradeEnabled
+                ? 'bg-[#10B981] hover:bg-[#059669] text-white shadow-[0_0_18px_rgba(16,185,129,0.55)]'
+                : 'bg-[#1F2937] hover:bg-[#374151] text-[#9CA3AF]'
+            }`}
+          >
+            {isCycleRunning ? 'Executing...' : 'Execute Auto Trade'}
+          </button>
+          <button onClick={handleScan} disabled={scanMutation.isPending}
+            className="flex items-center gap-2 px-5 py-2.5 bg-[#3B82F6] hover:bg-[#2563EB] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
+            <RefreshCw size={16} className={scanMutation.isPending ? 'animate-spin' : ''} />
+            Scan Watchlist
+          </button>
+        </div>
       </div>
 
       {/* Watchlist chips */}
