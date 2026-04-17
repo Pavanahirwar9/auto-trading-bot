@@ -11,6 +11,7 @@ import { formatDate } from '../utils/formatters';
 
 const AUTO_TRADE_QTY = 1;
 const AUTO_TRADE_INTERVAL_MS = 30000;
+const AUTO_TRADE_STORAGE_KEY = 'signals.autoTradeEnabled';
 
 export default function Signals() {
   const [inputValue, setInputValue] = useState('');
@@ -19,6 +20,7 @@ export default function Signals() {
   const [autoTradeEnabled, setAutoTradeEnabled] = useState(false);
   const [isCycleRunning, setIsCycleRunning] = useState(false);
   const cycleLockRef = useRef(false);
+  const didHydrateRef = useRef(false);
   const { watchlist, addSymbol, removeSymbol } = useWatchlistStore();
   const scanMutation = useScanSignals();
   const executeTradeMutation = useExecuteTrade();
@@ -104,6 +106,29 @@ export default function Signals() {
   };
 
   useEffect(() => {
+    if (didHydrateRef.current) return;
+    if (typeof window === 'undefined') return;
+
+    const saved = window.localStorage.getItem(AUTO_TRADE_STORAGE_KEY) === 'true';
+    if (saved && watchlist.length > 0) {
+      setAutoTradeEnabled(true);
+    } else if (saved) {
+      window.localStorage.removeItem(AUTO_TRADE_STORAGE_KEY);
+    }
+
+    didHydrateRef.current = true;
+  }, [watchlist.length]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (autoTradeEnabled) {
+      window.localStorage.setItem(AUTO_TRADE_STORAGE_KEY, 'true');
+    } else {
+      window.localStorage.removeItem(AUTO_TRADE_STORAGE_KEY);
+    }
+  }, [autoTradeEnabled]);
+
+  useEffect(() => {
     if (!autoTradeEnabled) return;
 
     runAutoTradeCycle();
@@ -136,7 +161,7 @@ export default function Signals() {
                 : 'bg-[#1F2937] hover:bg-[#374151] text-[#9CA3AF]'
             }`}
           >
-            {isCycleRunning ? 'Executing...' : 'Execute Auto Trade'}
+            {autoTradeEnabled ? (isCycleRunning ? 'Executing...' : 'Stop Auto Trade') : 'Execute Auto Trade'}
           </button>
           <button onClick={handleScan} disabled={scanMutation.isPending}
             className="flex items-center gap-2 px-5 py-2.5 bg-[#3B82F6] hover:bg-[#2563EB] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">

@@ -183,7 +183,15 @@ const getRunningSession = () =>
 
 const stopAiTrade = async ({ sessionId, reason = 'Stopped by user', squareOff = true }) => {
   const session = sessionId ? sessions.get(sessionId) : getRunningSession();
-  if (!session || session.status !== 'RUNNING') return null;
+  
+  if (!session) {
+    return null;
+  }
+
+  // If already stopped, just return the state so the API responds successfully.
+  if (session.status !== 'RUNNING') {
+    return session;
+  }
 
   clearInterval(session.intervalId);
 

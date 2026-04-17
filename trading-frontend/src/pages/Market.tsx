@@ -15,12 +15,16 @@ export default function Market() {
   const [timeframe, setTimeframe] = useState('6');
   const [showDropdown, setShowDropdown] = useState(false);
 
-  const { watchlist, addSymbol, removeSymbol } = useWatchlistStore();
+  const { watchlist, addSymbol, removeSymbol, fetchWatchlist } = useWatchlistStore();
   
   const { data: quotesData, isLoading: quotesLoading } = useMultipleQuotes(watchlist);
   const { data: searchResults, isLoading: isSearching } = useMarketSearch(debouncedQuery);
   const { data: searchData, isLoading: searchLoading, isError: searchError } = useMarketQuote(searchSymbol);
   const { data: historyData, isLoading: histLoading } = useMarketHistory(selectedSymbol, timeframe);
+
+  useEffect(() => {
+    fetchWatchlist();
+  }, [fetchWatchlist]);
 
   // Debounce search input for dropdown
   useEffect(() => {

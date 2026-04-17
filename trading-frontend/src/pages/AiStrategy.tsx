@@ -1,16 +1,72 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Brain, Play, Square, Sparkles, TrendingUp, Target, ShieldAlert } from 'lucide-react';
-import toast from 'react-hot-toast';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell } from 'recharts';
+import { toast } from 'react-hot-toast';
+import { XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ComposedChart, Area, Line } from 'recharts';
 import {
   analyzeAiStrategy,
   getAiTradeSessions,
   startAiTradeSession,
   stopAiTradeSession,
-} from '../api/aiStrategy';
+} from '../api/aiStrategy.js';
 
 const BACKEND_ORIGIN =
   (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api').replace('/api', '');
+
+const ACTIVE_SESSION_KEY = 'aiStrategy.activeSessionId';
+
+type NextDayPrediction = {
+  stopLoss: number;
+  entry: number;
+  target: number;
+  rationale?: string;
+};
+
+type AnalysisPayload = {
+  nextDayPrediction?: NextDayPrediction;
+  source?: string;
+};
+
+type StrategyPayload = {
+  rules?: {
+    entry?: { whenPriceAtOrBelow?: number };
+    stopLoss?: number;
+    takeProfit?: number;
+  };
+  [key: string]: unknown;
+};
+
+type AnalysisResult = {
+  analysis?: AnalysisPayload;
+  strategy?: StrategyPayload;
+};
+
+type TradeLogEntry = {
+  type: string;
+  timestamp: string;
+  [key: string]: unknown;
+};
+
+type SessionPayload = {
+  id: string;
+  status: string;
+  symbol?: string;
+  quantity?: number;
+  lastPrice?: number | null;
+  tradeLog?: TradeLogEntry[];
+  [key: string]: unknown;
+};
+
+type EventItem = {
+  type: string;
+  timestamp: string;
+  payload: Record<string, unknown>;
+};
+
+type ChartPoint = {
+  name: string;
+  price: number;
+  color: string;
+};
 
 const COMMON_SYMBOLS = [
   'RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'INFY.NS', 'ICICIBANK.NS',
@@ -21,15 +77,15 @@ const COMMON_SYMBOLS = [
 export default function AiStrategy() {
   const [symbol, setSymbol] = useState('RELIANCE.NS');
   const [quantity, setQuantity] = useState(1);
-  const [analysisResult, setAnalysisResult] = useState(null);
-  const [activeSession, setActiveSession] = useState(null);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [activeSession, setActiveSession] = useState<SessionPayload | null>(null);
   const [loading, setLoading] = useState(false);
-  const [events, setEvents] = useState([]);
+  const [events, setEvents] = useState<EventItem[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   const hasStrategy = Boolean(analysisResult?.strategy);
 
-  const chartData = useMemo(() => {
+  const chartData = useMemo<ChartPoint[] | null>(() => {
     const p = analysisResult?.analysis?.nextDayPrediction;
     if (!p) return null;
     return [
@@ -39,14 +95,14 @@ export default function AiStrategy() {
     ];
   }, [analysisResult]);
 
-  const activeExecutionStrategy = useMemo(() => {
-    let executionStrategy = analysisResult?.strategy;
+  const activeExecutionStrategy = useMemo<StrategyPayload | null>(() => {
+    let executionStrategy = analysisResult?.strategy ?? null;
     const p = analysisResult?.analysis?.nextDayPrediction;
     if (p) {
       executionStrategy = {
-        ...executionStrategy,
+        ...(executionStrategy ?? {}),
         rules: {
-          ...executionStrategy?.rules,
+          ...(executionStrategy?.rules ?? {}),
           entry: { whenPriceAtOrBelow: p.entry },
           stopLoss: p.stopLoss,
           takeProfit: p.target
@@ -63,20 +119,25 @@ export default function AiStrategy() {
       : 'bg-[#7F1D1D] text-[#FCA5A5]';
   }, [activeSession]);
 
-  const prependEvent = (evt) => {
+  const prependEvent = (evt: EventItem) => {
     setEvents((prev) => [evt, ...prev].slice(0, 60));
   };
 
   const loadSession = async () => {
     try {
       const res = await getAiTradeSessions();
-      const running = (res?.data || []).find((s) => s.status === 'RUNNING');
-      setActsessions = res?.data?.data || res?.data || [];
-      const activeOrLatest = sessions.find((s) => s.status === 'RUNNING') || sessions[sessions.length - 1];
+      const payload = res?.data?.data ?? res?.data ?? [];
+      const sessions: SessionPayload[] = Array.isArray(payload) ? payload : [];
+      const savedId = typeof window !== 'undefined'
+        ? window.localStorage.getItem(ACTIVE_SESSION_KEY)
+        : null;
+      const activeOrLatest = (savedId ? sessions.find((s) => s.id === savedId) : null)
+        || sessions.find((s) => s.status === 'RUNNING')
+        || sessions[sessions.length - 1];
       setActiveSession(activeOrLatest || null);
 
       if (activeOrLatest) {
-        const feed = [];
+        const feed: EventItem[] = [];
         if (activeOrLatest.lastPrice) {
           feed.push({
             type: 'sync',
@@ -84,7 +145,7 @@ export default function AiStrategy() {
             payload: { symbol: activeOrLatest.symbol, tickPrice: activeOrLatest.lastPrice, status: activeOrLatest.status }
           });
         }
-        activeOrLatest.tradeLog?.forEach(t => {
+        activeOrLatest.tradeLog?.forEach((t: TradeLogEntry) => {
           feed.push({ type: t.type === 'BUY' || t.type === 'SELL' ? 'trade_executed' : t.type, timestamp: t.timestamp, payload: t });
         });
         feed.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -101,6 +162,15 @@ export default function AiStrategy() {
     const interval = setInterval(loadSession, 3000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (activeSession?.status === 'RUNNING') {
+      window.localStorage.setItem(ACTIVE_SESSION_KEY, activeSession.id);
+    } else {
+      window.localStorage.removeItem(ACTIVE_SESSION_KEY);
+    }
+  }, [activeSession]);
 
   const normalizedSymbol = () => {
     const s = symbol.trim().toUpperCase();
@@ -121,7 +191,8 @@ export default function AiStrategy() {
       setAnalysisResult(res?.data || null);
       toast.success('AI analysis and strategy generated.');
     } catch (err) {
-      toast.error(err.message || 'Failed to generate AI strategy.');
+      const message = err instanceof Error ? err.message : 'Failed to generate AI strategy.';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -144,7 +215,8 @@ export default function AiStrategy() {
       setActiveSession(res?.data?.data || res?.data || null);
       toast.success('AI auto trade started using graph predictions.');
     } catch (err) {
-      toast.error(err.message || 'Failed to start AI trade.');
+      const message = err instanceof Error ? err.message : 'Failed to start AI trade.';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -158,11 +230,12 @@ export default function AiStrategy() {
 
     setLoading(true);
     try {
-      await stopAiTradeSession(activeSession.id);
-      setActiveSession((prev) => (prev ? { ...prev, status: 'STOPPED' } : null));
+      const res = await stopAiTradeSession(activeSession.id);
+      setActiveSession(res?.data?.data || res?.data || null);
       toast.success('AI auto trade stopped.');
     } catch (err) {
-      toast.error(err.message || 'Failed to stop AI trade.');
+      const message = err instanceof Error ? err.message : 'Failed to stop AI trade.';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -251,24 +324,37 @@ export default function AiStrategy() {
             ) : (
               <>
                 <p className="text-xs text-[#9CA3AF] mb-4 text-center">
-                  {analysisResult?.analysis?.nextDayPrediction?.rationale || "AI predicted strategy levels."}
+                  {analysisResult?.analysis?.nextDayPrediction?.rationale || 'AI predicted strategy levels.'}
                 </p>
                 <div className="flex-1 w-full relative min-h-[180px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 30, left: 10, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" horizontal={false} />
-                      <XAxis type="number" stroke="#9CA3AF" tick={{ fontSize: 12 }} domain={['dataMin - 10', 'dataMax + 10']} />
-                      <YAxis type="category" dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 12 }} width={80} />
+                    <ComposedChart data={chartData} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
+                      <defs>
+                        <linearGradient id="colorPrice" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="5%" stopColor="#EF4444" stopOpacity={0.8}/>
+                          <stop offset="50%" stopColor="#3B82F6" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#10B981" stopOpacity={0.8}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1F2937" vertical={false} />
+                      <XAxis dataKey="name" stroke="#9CA3AF" tick={{ fontSize: 12 }} />
+                      <YAxis type="number" stroke="#9CA3AF" tick={{ fontSize: 12 }} domain={['dataMin - Math.abs(dataMin*0.01)', 'dataMax + Math.abs(dataMax*0.01)']} tickFormatter={(v) => v.toFixed(2)} width={60} />
                       <RechartsTooltip 
                         contentStyle={{ backgroundColor: '#111827', border: '1px solid #3B82F6', borderRadius: '8px' }}
                         itemStyle={{ color: '#fff' }}
+                        labelStyle={{ color: '#9CA3AF' }}
+                        formatter={(value) => {
+                          const numeric = typeof value === 'number' ? value : Number(value);
+                          const formatted = Number.isFinite(numeric) ? `₹${numeric.toFixed(2)}` : String(value ?? '');
+                          return [formatted, 'Price'];
+                        }}
                       />
-                      <Bar dataKey="price" radius={[0, 4, 4, 0]} barSize={24}>
-                        {chartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Bar>
-                    </BarChart>
+                      <Area type="monotone" dataKey="price" stroke="none" fill="url(#colorPrice)" />
+                      <Line type="monotone" dataKey="price" stroke="url(#colorPrice)" strokeWidth={3} dot={(props: any) => {
+                          const colors = ['#EF4444', '#3B82F6', '#10B981'];
+                          return <circle cx={props.cx} cy={props.cy} r={6} fill={colors[props.index]} stroke="#111827" strokeWidth={2} key={`dot-${props.index}`} />;
+                      }} activeDot={{ r: 8 }} />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
                 
@@ -277,21 +363,21 @@ export default function AiStrategy() {
                     <ShieldAlert size={16} className="text-[#EF4444]" />
                     <div>
                       <div className="text-[10px] text-[#6B7280]">Stop Loss</div>
-                      <div className="text-xs font-bold text-white">₹{chartData[0].price}</div>
+                      <div className="text-xs font-bold text-white">₹{chartData[0]?.price ?? 0}</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 border-l border-[#1F2937] pl-3">
                     <TrendingUp size={16} className="text-[#3B82F6]" />
                     <div>
                       <div className="text-[10px] text-[#6B7280]">Entry</div>
-                      <div className="text-xs font-bold text-white">₹{chartData[1].price}</div>
+                      <div className="text-xs font-bold text-white">₹{chartData[1]?.price ?? 0}</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 border-l border-[#1F2937] pl-3">
                     <Target size={16} className="text-[#10B981]" />
                     <div>
                       <div className="text-[10px] text-[#6B7280]">Target</div>
-                      <div className="text-xs font-bold text-white">₹{chartData[2].price}</div>
+                      <div className="text-xs font-bold text-white">₹{chartData[2]?.price ?? 0}</div>
                     </div>
                   </div>
                 </div>

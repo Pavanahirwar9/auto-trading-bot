@@ -9,6 +9,7 @@ import ErrorState from '../components/common/ErrorState';
 import { usePortfolio, useTradeHistory } from '../hooks/usePortfolio';
 import { useMarketHistory } from '../hooks/useMarketData';
 import { useScanSignals } from '../hooks/useSignals';
+import useWatchlistStore from '../store/watchlistStore';
 import { formatINR, formatPercent } from '../utils/formatters';
 
 const SCAN_SYMBOLS = ['RELIANCE.NS', 'TCS.NS', 'INFY.NS', 'HDFCBANK.NS', 'WIPRO.NS'];
@@ -18,12 +19,14 @@ export default function Dashboard() {
   const { data: portfolio, isLoading: pfLoading } = usePortfolio();
   const { data: trades, isLoading: trLoading } = useTradeHistory();
   const { data: historyData, isLoading: histLoading } = useMarketHistory('RELIANCE.NS', '14');
+  const { watchlist, fetchWatchlist } = useWatchlistStore();
   const scanMutation = useScanSignals();
+  const scanSymbols = watchlist.length > 0 ? watchlist : SCAN_SYMBOLS;
 
   // Handle the manual button click cleanly
   const handleScan = () => {
     if (!scanMutation.isPending) {
-      scanMutation.mutate(SCAN_SYMBOLS);
+      scanMutation.mutate(scanSymbols);
     }
   };
 
@@ -34,14 +37,19 @@ export default function Dashboard() {
   const signals = scanMutation.data?.data || [];
 
   useEffect(() => {
+    fetchWatchlist();
+  }, [fetchWatchlist]);
+
+  useEffect(() => {
     // Initial scan and setup polling every 10 seconds for real-time updates
+    if (scanSymbols.length === 0) return;
     handleScan();
     const interval = setInterval(() => {
       handleScan();
     }, 10000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount
+  }, [scanSymbols.join('|')]);
 
 
   const totalTrades = tradeList.length;
@@ -117,7 +125,7 @@ export default function Dashboard() {
           ) : (
             <div className="text-center py-12">
               <p className="text-[#6B7280] text-sm mb-2">Click "Scan All" to generate signals</p>
-              <p className="text-[#4B5563] text-xs">Watchlist: {SCAN_SYMBOLS.map(s => s.replace('.NS','')).join(', ')}</p>
+              <p className="text-[#4B5563] text-xs">Watchlist: {scanSymbols.map(s => s.replace('.NS','')).join(', ')}</p>
             </div>
           )}
         </div>
