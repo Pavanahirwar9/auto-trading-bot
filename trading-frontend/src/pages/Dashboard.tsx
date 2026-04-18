@@ -16,9 +16,10 @@ const SCAN_SYMBOLS = ['RELIANCE.NS', 'TCS.NS', 'INFY.NS', 'HDFCBANK.NS', 'WIPRO.
 
 export default function Dashboard() {
   const [tradeModal, setTradeModal] = useState({ open: false, symbol: '', signal: '', price: 0 });
+  const [selectedSymbol, setSelectedSymbol] = useState('RELIANCE.NS');
   const { data: portfolio, isLoading: pfLoading } = usePortfolio();
   const { data: trades, isLoading: trLoading } = useTradeHistory();
-  const { data: historyData, isLoading: histLoading } = useMarketHistory('RELIANCE.NS', '14');
+  const { data: historyData, isLoading: histLoading } = useMarketHistory(selectedSymbol, '14');
   const { watchlist, fetchWatchlist } = useWatchlistStore();
   const scanMutation = useScanSignals();
   const scanSymbols = watchlist.length > 0 ? watchlist : SCAN_SYMBOLS;
@@ -39,6 +40,13 @@ export default function Dashboard() {
   useEffect(() => {
     fetchWatchlist();
   }, [fetchWatchlist]);
+
+  useEffect(() => {
+    if (!watchlist.length) return;
+    if (watchlist.includes(selectedSymbol)) return;
+    const preferred = watchlist.includes('RELIANCE.NS') ? 'RELIANCE.NS' : watchlist[0];
+    setSelectedSymbol(preferred);
+  }, [watchlist, selectedSymbol]);
 
   useEffect(() => {
     // Initial scan and setup polling every 10 seconds for real-time updates
@@ -75,7 +83,7 @@ export default function Dashboard() {
         <div className="lg:col-span-3 bg-[#111827] border border-[#1F2937] rounded-xl p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-base font-semibold text-white">RELIANCE.NS — SMA Crossover</h2>
+              <h2 className="text-base font-semibold text-white">{selectedSymbol} — SMA Crossover</h2>
               <p className="text-xs text-[#6B7280]">Price with SMA 50 & SMA 200 overlay</p>
             </div>
           </div>
@@ -106,7 +114,15 @@ export default function Dashboard() {
             <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
               {signals.map((s, i) => (
                 s.success && s.data ? (
-                  <div key={i} className="flex items-center justify-between bg-[#0A0E17] rounded-lg p-3">
+                  <div
+                    key={i}
+                    onClick={() => setSelectedSymbol(s.data.symbol)}
+                    className={`flex items-center justify-between rounded-lg p-3 cursor-pointer border transition-colors ${
+                      s.data.symbol === selectedSymbol
+                        ? 'bg-[#111827] border-[#3B82F6]/60'
+                        : 'bg-[#0A0E17] border-transparent hover:border-[#1F2937]'
+                    }`}
+                  >
                     <div>
                       <p className="text-sm font-semibold text-white">{s.data.symbol?.replace('.NS', '')}</p>
                       <p className="text-xs font-mono text-[#9CA3AF]">{formatINR(s.data.currentPrice)}</p>

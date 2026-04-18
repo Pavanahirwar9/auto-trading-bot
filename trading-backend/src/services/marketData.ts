@@ -17,6 +17,23 @@ const ANGEL_TOTP_SECRET = process.env.ANGEL_TOTP_SECRET || '';
 let jwtToken = null;
 let feedToken = null;
 
+const shouldReauth = (error) => {
+  const status = error?.response?.status;
+  return status === 401 || status === 403;
+};
+
+const withReauth = async (requestFn) => {
+  try {
+    return await requestFn();
+  } catch (error) {
+    if (!shouldReauth(error)) throw error;
+    jwtToken = null;
+    feedToken = null;
+    await loginToAngel();
+    return requestFn();
+  }
+};
+
 /** Authenticates and sets JWT Token */
 const loginToAngel = async () => {
   if (!ANGEL_API_KEY || !ANGEL_CLIENT_CODE || !ANGEL_PASSWORD || !ANGEL_TOTP_SECRET) {
@@ -72,23 +89,27 @@ const getLiveQuote = async (symbol) => {
   const token = await getAngelTokenMap(symbol);
 
   try {
-    const res = await axios.post('https://apiconnect.angelbroking.com/rest/secure/angelbroking/order/v1/getLtpData', {
-      exchange: 'NSE',
-      tradingsymbol: token.angelSymbol,
-      symboltoken: token.angelToken
-    }, {
-      headers: {
-        'Authorization': `Bearer ${jwtToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-UserType': 'USER',
-        'X-SourceID': 'WEB',
-        'X-ClientLocalIP': '192.168.1.1',
-        'X-ClientPublicIP': '106.193.147.98',
-        'X-MACAddress': 'fe-80-00-00-00-00-00-00-02-1a-2b-3c-4d-5e',
-        'X-PrivateKey': ANGEL_API_KEY
+    const res = await withReauth(() => axios.post(
+      'https://apiconnect.angelbroking.com/rest/secure/angelbroking/order/v1/getLtpData',
+      {
+        exchange: 'NSE',
+        tradingsymbol: token.angelSymbol,
+        symboltoken: token.angelToken,
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${jwtToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-UserType': 'USER',
+          'X-SourceID': 'WEB',
+          'X-ClientLocalIP': '192.168.1.1',
+          'X-ClientPublicIP': '106.193.147.98',
+          'X-MACAddress': 'fe-80-00-00-00-00-00-00-02-1a-2b-3c-4d-5e',
+          'X-PrivateKey': ANGEL_API_KEY,
+        },
       }
-    });
+    ));
 
     if (res.data && res.data.status) {
       const data = res.data.data;
@@ -129,25 +150,29 @@ const getHistoricalData = async (symbol, period) => {
   const formatAngelDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} 09:15`;
 
   try {
-    const res = await axios.post('https://apiconnect.angelbroking.com/rest/secure/angelbroking/historical/v1/getCandleData', {
-      exchange: 'NSE',
-      symboltoken: token.angelToken,
-      interval: 'ONE_DAY',
-      fromdate: formatAngelDate(fromdate),
-      todate: formatAngelDate(todate)
-    }, {
-      headers: {
-        'Authorization': `Bearer ${jwtToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-UserType': 'USER',
-        'X-SourceID': 'WEB',
-        'X-ClientLocalIP': '192.168.1.1',
-        'X-ClientPublicIP': '106.193.147.98',
-        'X-MACAddress': 'fe-80-00-00-00-00-00-00-02-1a-2b-3c-4d-5e',
-        'X-PrivateKey': ANGEL_API_KEY
+    const res = await withReauth(() => axios.post(
+      'https://apiconnect.angelbroking.com/rest/secure/angelbroking/historical/v1/getCandleData',
+      {
+        exchange: 'NSE',
+        symboltoken: token.angelToken,
+        interval: 'ONE_DAY',
+        fromdate: formatAngelDate(fromdate),
+        todate: formatAngelDate(todate),
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${jwtToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-UserType': 'USER',
+          'X-SourceID': 'WEB',
+          'X-ClientLocalIP': '192.168.1.1',
+          'X-ClientPublicIP': '106.193.147.98',
+          'X-MACAddress': 'fe-80-00-00-00-00-00-00-02-1a-2b-3c-4d-5e',
+          'X-PrivateKey': ANGEL_API_KEY,
+        },
       }
-    });
+    ));
 
     if (res.data && res.data.status && res.data.data) {
       // response format: [ [time, open, high, low, close, volume], ... ]
